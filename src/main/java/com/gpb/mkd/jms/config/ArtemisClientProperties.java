@@ -98,6 +98,12 @@ public class ArtemisClientProperties {
          * Header X_ServiceID.
          */
         private String xServiceId;
+
+        /**
+         * Header Format.
+         * Default: MQRFH2.
+         */
+        private String format = "MQRFH2";
     }
 
     /**

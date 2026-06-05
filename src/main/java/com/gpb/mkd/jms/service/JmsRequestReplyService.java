@@ -444,7 +444,10 @@ public class JmsRequestReplyService {
         };
     }
 
-    private void applyIntegrationHeaders(TextMessage message, LoadRequest request) throws JMSException {
+    private void applyIntegrationHeaders(
+            TextMessage message,
+            LoadRequest request
+    ) throws JMSException {
         ArtemisClientProperties.Headers headers = properties.getHeaders();
 
         setStringPropertyIfNotBlank(message, "X_From", headers.getXFrom());
@@ -453,20 +456,33 @@ public class JmsRequestReplyService {
         message.setStringProperty("X_CreateDateTime", nowIsoMillisUtc());
 
         /*
+        * Новое требование:
+        * X_ExpiresMsg = время отправки сообщения + 2 минуты.
+        */
+        message.setStringProperty("X_ExpiresMsg", expiresMsgIsoMillisUtc());
+
+        /*
+        * Новое требование:
+        * ReplyToQ дублирует JMSReplyTo.
+        */
+        setStringPropertyIfNotBlank(message, "ReplyToQ", properties.getReplyQueue());
+
+        /*
+        * Новое требование:
+        * Format берется из application.yaml.
+        * Fallback = MQRFH2.
+        */
+        String format = firstNotBlank(headers.getFormat(), "MQRFH2");
+        message.setStringProperty("Format", format);
+
+        /*
         * X_MsgID копируется из заголовка msgid.
-        * В текущей модели удобнее всего брать его из request.properties["msgid"].
         */
         String msgId = getRequestPropertyIgnoreCase(request, "msgid");
         setStringPropertyIfNotBlank(message, "X_MsgID", msgId);
 
         /*
-        * ВАЖНО:
-        * JMSMessageID появляется только после producer.send(message).
-        * Поэтому до send() нельзя взять message.getJMSMessageID()
-        * и положить его в property X_RequestMessageId этого же сообщения.
-        *
-        * Поэтому здесь используем MessageId из входного запроса, если он передан
-        * в request.properties["MessageId"] / ["messageId"] / ["JMSMessageID"].
+        * X_RequestMessageId копируется из MessageId изначального запроса.
         */
         String requestMessageId = firstNotBlank(
                 getRequestPropertyIgnoreCase(request, "MessageId"),
@@ -487,6 +503,14 @@ public class JmsRequestReplyService {
 
     private String nowIsoMillisUtc() {
         return ISO_MILLIS_FORMATTER.format(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+    }
+
+    private String expiresMsgIsoMillisUtc() {
+        return ISO_MILLIS_FORMATTER.format(
+                Instant.now()
+                        .plus(2, ChronoUnit.MINUTES)
+                        .truncatedTo(ChronoUnit.MILLIS)
+        );
     }
 
     private String getRequestPropertyIgnoreCase(LoadRequest request, String name) {
