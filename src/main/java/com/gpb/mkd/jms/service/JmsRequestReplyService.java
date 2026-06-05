@@ -23,6 +23,9 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -73,6 +76,8 @@ public class JmsRequestReplyService {
     private final AtomicInteger inFlight = new AtomicInteger();
     private final AtomicInteger workerNumber = new AtomicInteger();
     private final AtomicInteger timeoutNumber = new AtomicInteger();
+
+    private static final DateTimeFormatter ISO_MILLIS_FORMATTER = DateTimeFormatter.ISO_INSTANT;
 
     private ThreadLocal<WorkerContext> workerContext;
 
@@ -208,8 +213,10 @@ public class JmsRequestReplyService {
             WorkerContext context = workerContext.get();
 
             TextMessage message = context.session.createTextMessage(request.getPayload());
+
             applyRequestReplyHeaders(message, context.replyQueue);
             applyUserProperties(message, request.getProperties());
+            applyIntegrationHeaders(message, request);
             applyIbmMqCompatibilityProperties(message);
 
             if (properties.getIbmMqCompatibility().isRequestCorrelationIdEnabled()) {
@@ -435,6 +442,79 @@ public class JmsRequestReplyService {
             thread.setDaemon(true);
             return thread;
         };
+    }
+
+    private void applyIntegrationHeaders(TextMessage message, LoadRequest request) throws JMSException {
+        ArtemisClientProperties.Headers headers = properties.getHeaders();
+
+        setStringPropertyIfNotBlank(message, "X_From", headers.getXFrom());
+        setStringPropertyIfNotBlank(message, "X_ServiceID", headers.getXServiceId());
+
+        message.setStringProperty("X_CreateDateTime", nowIsoMillisUtc());
+
+        /*
+        * X_MsgID копируется из заголовка msgid.
+        * В текущей модели удобнее всего брать его из request.properties["msgid"].
+        */
+        String msgId = getRequestPropertyIgnoreCase(request, "msgid");
+        setStringPropertyIfNotBlank(message, "X_MsgID", msgId);
+
+        /*
+        * ВАЖНО:
+        * JMSMessageID появляется только после producer.send(message).
+        * Поэтому до send() нельзя взять message.getJMSMessageID()
+        * и положить его в property X_RequestMessageId этого же сообщения.
+        *
+        * Поэтому здесь используем MessageId из входного запроса, если он передан
+        * в request.properties["MessageId"] / ["messageId"] / ["JMSMessageID"].
+        */
+        String requestMessageId = firstNotBlank(
+                getRequestPropertyIgnoreCase(request, "MessageId"),
+                getRequestPropertyIgnoreCase(request, "messageId"),
+                getRequestPropertyIgnoreCase(request, "JMSMessageID")
+        );
+
+        setStringPropertyIfNotBlank(message, "X_RequestMessageId", requestMessageId);
+    }
+
+    private void setStringPropertyIfNotBlank(Message message, String name, String value) throws JMSException {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+
+        message.setStringProperty(name, value);
+    }
+
+    private String nowIsoMillisUtc() {
+        return ISO_MILLIS_FORMATTER.format(Instant.now().truncatedTo(ChronoUnit.MILLIS));
+    }
+
+    private String getRequestPropertyIgnoreCase(LoadRequest request, String name) {
+        if (request.getProperties() == null || request.getProperties().isEmpty()) {
+            return null;
+        }
+
+        for (Map.Entry<String, String> entry : request.getProperties().entrySet()) {
+            if (entry.getKey() != null && entry.getKey().equalsIgnoreCase(name)) {
+                return entry.getValue();
+            }
+        }
+
+        return null;
+    }
+
+    private String firstNotBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+
+        return null;
     }
 
     @PreDestroy

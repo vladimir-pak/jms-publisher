@@ -83,6 +83,23 @@ public class ArtemisClientProperties {
     @NotBlank
     private String replyQueue;
 
+    private Headers headers = new Headers();
+
+    @Getter
+    @Setter
+    public static class Headers {
+
+        /**
+         * Header X_From.
+         */
+        private String xFrom;
+
+        /**
+         * Header X_ServiceID.
+         */
+        private String xServiceId;
+    }
+
     /**
      * Max time to wait for a correlated response.
      */

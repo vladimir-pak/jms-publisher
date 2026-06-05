@@ -37,6 +37,10 @@ app:
     block-on-non-durable-send: true
     consumer-window-size: 0
 
+    headers:
+      x-from: ${ARTEMIS_X_FROM:jms-publisher}
+      x-service-id: ${ARTEMIS_X_SERVICE_ID:jms-load-test}
+
     ssl-enabled: true
     enabled-cipher-suites: ${ARTEMIS_ENABLED_CIPHER_SUITES:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
 
