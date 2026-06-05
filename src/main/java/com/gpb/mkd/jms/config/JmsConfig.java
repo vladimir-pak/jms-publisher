@@ -13,14 +13,23 @@ public class JmsConfig {
 
     @Bean
     public ActiveMQConnectionFactory artemisConnectionFactory() {
+        String brokerUrl = ArtemisBrokerUrlBuilder.build(properties);
+
         ActiveMQConnectionFactory factory = new ActiveMQConnectionFactory(
-                properties.getBrokerUrl(),
+                brokerUrl,
                 properties.getUsername(),
                 properties.getPassword()
         );
 
+        factory.setClientID(properties.getClientId());
         factory.setCallTimeout(properties.getReceiveTimeoutMs());
         factory.setCallFailoverTimeout(properties.getReceiveTimeoutMs());
+
+        factory.setInitialConnectAttempts(properties.getInitialConnectAttempts());
+        factory.setReconnectAttempts(properties.getReconnectAttempts());
+        factory.setRetryInterval(properties.getRetryIntervalMs());
+        factory.setBlockOnNonDurableSend(properties.isBlockOnNonDurableSend());
+        factory.setConsumerWindowSize(properties.getConsumerWindowSize());
 
         return factory;
     }

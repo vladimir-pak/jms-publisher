@@ -1,5 +1,6 @@
 package com.gpb.mkd.jms.service;
 
+import com.gpb.mkd.jms.config.ArtemisBrokerUrlBuilder;
 import com.gpb.mkd.jms.config.ArtemisClientProperties;
 import com.gpb.mkd.jms.dto.LoadRequest;
 import com.gpb.mkd.jms.dto.LoadResponse;
@@ -108,7 +109,7 @@ public class JmsRequestReplyService {
         );
 
         log.info("JMS optimized request-reply client started. brokerUrl={}, requestQueue={}, replyQueue={}, senderThreads={}",
-                properties.getBrokerUrl(),
+                ArtemisBrokerUrlBuilder.build(properties),
                 properties.getRequestQueue(),
                 properties.getReplyQueue(),
                 properties.getConcurrentSenders());

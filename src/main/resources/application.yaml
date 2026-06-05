@@ -16,14 +16,38 @@ management:
 
 app:
   artemis:
-    # Without TLS:
-    # broker-url: "tcp://localhost:61616"
+    # Optional full URL override. If set, app.artemis.hosts/settings below are ignored by URL builder.
+    # broker-url: "(ssl://artemis-1:61617,ssl://artemis-2:61617)?ha=true;clientID=jms-publisher-1;initialConnectAttempts=3;reconnectAttempts=-1;retryInterval=2500;blockOnNonDurableSend=true;consumerWindowSize=0;sslEnabled=true;enabledCipherSuites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
 
-    # TLS, server auth only:
-    broker-url: "ssl://artemis-host:61617?trustStorePath=/opt/app/certs/truststore.p12;trustStorePassword=${TRUSTSTORE_PASSWORD};trustStoreType=PKCS12"
+    # Multi-host URL will be built from this list:
+    # (ssl://artemis-1:61617,ssl://artemis-2:61617)?ha=true;...
+    scheme: ssl
+    hosts:
+      - host: artemis-1.example.local
+        port: 61617
+      - host: artemis-2.example.local
+        port: 61617
 
-    # Mutual TLS example:
-    # broker-url: "ssl://artemis-host:61617?trustStorePath=/opt/app/certs/truststore.p12;trustStorePassword=${TRUSTSTORE_PASSWORD};trustStoreType=PKCS12;keyStorePath=/opt/app/certs/keystore.p12;keyStorePassword=${KEYSTORE_PASSWORD};keyStoreType=PKCS12"
+    client-id: ${ARTEMIS_CLIENT_ID:jms-publisher-1}
+
+    ha: true
+    initial-connect-attempts: 3
+    reconnect-attempts: -1
+    retry-interval-ms: 2500
+    block-on-non-durable-send: true
+    consumer-window-size: 0
+
+    ssl-enabled: true
+    enabled-cipher-suites: ${ARTEMIS_ENABLED_CIPHER_SUITES:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+
+    trust-store-path: /opt/app/certs/truststore.p12
+    trust-store-password: ${TRUSTSTORE_PASSWORD}
+    trust-store-type: PKCS12
+
+    # Mutual TLS, if required by broker:
+    # key-store-path: /opt/app/certs/keystore.p12
+    # key-store-password: ${KEYSTORE_PASSWORD}
+    # key-store-type: PKCS12
 
     username: ${ARTEMIS_USERNAME}
     password: ${ARTEMIS_PASSWORD}

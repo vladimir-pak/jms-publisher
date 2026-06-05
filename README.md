@@ -611,3 +611,77 @@ curl -X POST http://localhost:9000/api/load/request-reply \
 curl http://localhost:9000/actuator/metrics
 curl http://localhost:9000/actuator/prometheus
 ```
+
+---
+
+## Обновленная конфигурация подключения к Artemis HA/TLS
+
+Подключение можно задать двумя способами.
+
+### 1. Рекомендуемый способ: список хостов
+
+Если `app.artemis.broker-url` не указан, сервис сам собирает multi-host broker URL из `hosts` и параметров подключения:
+
+```yaml
+app:
+  artemis:
+    scheme: ssl
+    hosts:
+      - host: artemis-1.example.local
+        port: 61617
+      - host: artemis-2.example.local
+        port: 61617
+
+    client-id: ${ARTEMIS_CLIENT_ID:jms-publisher-1}
+
+    ha: true
+    initial-connect-attempts: 3
+    reconnect-attempts: -1
+    retry-interval-ms: 2500
+    block-on-non-durable-send: true
+    consumer-window-size: 0
+
+    ssl-enabled: true
+    enabled-cipher-suites: ${ARTEMIS_ENABLED_CIPHER_SUITES:TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384}
+
+    trust-store-path: /opt/app/certs/truststore.p12
+    trust-store-password: ${TRUSTSTORE_PASSWORD}
+    trust-store-type: PKCS12
+
+    # Если нужен mutual TLS:
+    # key-store-path: /opt/app/certs/keystore.p12
+    # key-store-password: ${KEYSTORE_PASSWORD}
+    # key-store-type: PKCS12
+```
+
+Из этого будет собран URL вида:
+
+```text
+(ssl://artemis-1.example.local:61617,ssl://artemis-2.example.local:61617)?ha=true;clientID=jms-publisher-1;initialConnectAttempts=3;reconnectAttempts=-1;retryInterval=2500;blockOnNonDurableSend=true;consumerWindowSize=0;sslEnabled=true;enabledCipherSuites=...
+```
+
+### 2. Полный broker-url вручную
+
+Если нужно полностью контролировать строку подключения, можно указать `broker-url`. В этом случае `hosts`, `scheme` и параметры сборки URL не используются:
+
+```yaml
+app:
+  artemis:
+    broker-url: "(ssl://artemis-1.example.local:61617,ssl://artemis-2.example.local:61617)?ha=true;clientID=jms-publisher-1;initialConnectAttempts=3;reconnectAttempts=-1;retryInterval=2500;blockOnNonDurableSend=true;consumerWindowSize=0;sslEnabled=true;enabledCipherSuites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384;trustStorePath=/opt/app/certs/truststore.p12;trustStorePassword=${TRUSTSTORE_PASSWORD};trustStoreType=PKCS12"
+```
+
+### Важные параметры
+
+| Параметр | Значение по умолчанию | Назначение |
+|---|---:|---|
+| `ha` | `true` | HA/failover режим клиента |
+| `client-id` | из `application.yaml` | JMS ClientID. Должен быть уникальным для одновременно работающих инстансов |
+| `initial-connect-attempts` | `3` | Количество попыток первичного подключения |
+| `reconnect-attempts` | `-1` | Бесконечные reconnection attempts |
+| `retry-interval-ms` | `2500` | Интервал между попытками reconnect |
+| `block-on-non-durable-send` | `true` | Блокировать отправку non-durable сообщений до подтверждения брокера |
+| `consumer-window-size` | `0` | Отключить prefetch/window у consumer; полезно для строгого request-response теста |
+| `ssl-enabled` | `true` | Включение TLS-параметров в URL |
+| `enabled-cipher-suites` | из `application.yaml` | Разрешенные TLS cipher suites |
+
+`JmsConfig` дополнительно выставляет эти параметры на `ActiveMQConnectionFactory` через setters: `clientID`, `initialConnectAttempts`, `reconnectAttempts`, `retryInterval`, `blockOnNonDurableSend`, `consumerWindowSize`, `callTimeout`, `callFailoverTimeout`.
