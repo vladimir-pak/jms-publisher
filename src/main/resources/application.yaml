@@ -1,0 +1,57 @@
+server:
+  port: 9000
+
+spring:
+  application:
+    name: jms-publisher
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+app:
+  artemis:
+    # Without TLS:
+    # broker-url: "tcp://localhost:61616"
+
+    # TLS, server auth only:
+    broker-url: "ssl://artemis-host:61617?trustStorePath=/opt/app/certs/truststore.p12;trustStorePassword=${TRUSTSTORE_PASSWORD};trustStoreType=PKCS12"
+
+    # Mutual TLS example:
+    # broker-url: "ssl://artemis-host:61617?trustStorePath=/opt/app/certs/truststore.p12;trustStorePassword=${TRUSTSTORE_PASSWORD};trustStoreType=PKCS12;keyStorePath=/opt/app/certs/keystore.p12;keyStorePassword=${KEYSTORE_PASSWORD};keyStoreType=PKCS12"
+
+    username: ${ARTEMIS_USERNAME}
+    password: ${ARTEMIS_PASSWORD}
+
+    request-queue: REQUEST.Q
+    reply-queue: REPLY.Q
+
+    receive-timeout-ms: 30000
+    concurrent-senders: 20
+
+    delivery-mode-persistent: true
+    message-ttl-ms: 60000
+
+    early-reply-ttl-ms: 60000
+    early-reply-max-size: 10000
+
+    ibm-mq-compatibility:
+      # JMSReplyTo -> MQMD.ReplyToQ / ReplyToQMgr after bridge to IBM MQ.
+      reply-to-enabled: true
+
+      # Default and recommended for MQMD provider:
+      # request JMSMessageID / MQMD.MsgId -> response JMSCorrelationID / MQMD.CorrelId.
+      request-correlation-id-enabled: false
+      request-correlation-id-prefix: "REQ-"
+
+      # Enable only if your Artemis->IBM MQ bridge or IBM MQ JMS side expects these properties.
+      ibm-properties-enabled: false
+      mq-message-type: 1       # IBM MQ MQMT_REQUEST
+      mq-format: MQSTR         # IBM MQ MQFMT_STRING
+      character-set: 1208      # UTF-8
+      encoding: 546
