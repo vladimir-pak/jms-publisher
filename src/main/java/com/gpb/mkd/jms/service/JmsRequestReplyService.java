@@ -491,6 +491,15 @@ public class JmsRequestReplyService {
         );
 
         setStringPropertyIfNotBlank(message, "X_RequestMessageId", requestMessageId);
+
+        log.info("headers. X_From={}, X_ServiceID={}, X_CreateDateTime={}, X_ExpiresMsg={}, ReplyToQ={}, Format={}",
+                message.getStringProperty("X_From"),
+                message.getStringProperty("X_ServiceID"),
+                message.getStringProperty("X_CreateDateTime"),
+                message.getStringProperty("X_ExpiresMsg"),
+                message.getStringProperty("ReplyToQ"),
+                message.getStringProperty("Format")
+        );
     }
 
     private void setStringPropertyIfNotBlank(Message message, String name, String value) throws JMSException {
