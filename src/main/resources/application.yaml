@@ -5,6 +5,19 @@ spring:
   application:
     name: jms-publisher
 
+  datasource:
+    url: jdbc:postgresql://HOST:5432/DB_NAME
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
 management:
   endpoints:
     web:
@@ -19,8 +32,6 @@ app:
     # Optional full URL override. If set, app.artemis.hosts/settings below are ignored by URL builder.
     # broker-url: "(ssl://artemis-1:61617,ssl://artemis-2:61617)?ha=true;clientID=jms-publisher-1;initialConnectAttempts=3;reconnectAttempts=-1;retryInterval=2500;blockOnNonDurableSend=true;consumerWindowSize=0;sslEnabled=true;enabledCipherSuites=TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384"
 
-    # Multi-host URL will be built from this list:
-    # (ssl://artemis-1:61617,ssl://artemis-2:61617)?ha=true;...
     scheme: ssl
     hosts:
       - host: artemis-1.example.local
@@ -84,3 +95,26 @@ app:
       mq-format: MQSTR         # IBM MQ MQFMT_STRING
       character-set: 1208      # UTF-8
       encoding: 546
+
+  comparison:
+
+    # Максимальное количество различий,
+    # которые вернём/залогируем за одно сравнение.
+    max-differences: 1000
+
+    # ограничение не вывести в лог огромный JSON.
+    max-value-length: 1000
+    flink:
+      table: flink_log_table
+
+      event-id-column: event_id
+      action-type-column: action_type
+      data-json-column: data_json
+      order-column: id
+    legacy:
+      table: legacy_log_table
+
+      action-type-column: action_type
+      data-json-column: data_json
+
+      order-column: id
