@@ -25,19 +25,8 @@ public class ComparisonRepository {
     private final ComparisonProperties properties;
     private final ObjectMapper objectMapper;
 
-    /**
-     * Новый Flink.
-     *
-     * Поиск:
-     * event_id = ?
-     * AND action_type = ANSWER / ANSWER_DETAIL
-     */
-    public Optional<JsonNode> findFlinkResult(
-            String eventId,
-            CompareActionType actionType
-    ) {
-        ComparisonProperties.Database db =
-                properties.getFlink();
+    public Optional<JsonNode> findFlinkResult(String eventId, CompareActionType actionType) {
+        ComparisonProperties.Database db = properties.getFlink();
 
         validateFlinkDb(db);
 
@@ -62,78 +51,26 @@ public class ComparisonRepository {
         );
     }
 
-    /**
-     * Старое Python-приложение.
-     *
-     * Первый шаг:
-     *
-     * action_type = QUERY
-     * AND data_json ->> 'dfw_event_id' = eventId
-     */
-    public Optional<JsonNode> findLegacyQueryByEventId(
-            String eventId
-    ) {
-        ComparisonProperties.Database db =
-                properties.getLegacy();
-
-        validateLegacyDb(db);
-
-        String dataJson =
-                id(db.getDataJsonColumn());
-
-        String sql =
-                "SELECT " + dataJson
-                        + " FROM " + id(db.getTable())
-                        + " WHERE " + id(db.getActionTypeColumn()) + " = 'QUERY'"
-                        + " AND (" + dataJson + ")::jsonb ->> 'dfw_event_id' = ?"
-                        + orderAndLimit(db);
-
-        log.info(
-                "[COMPARE-DB][LEGACY] search QUERY by dfw_event_id={} table={}",
-                eventId,
-                db.getTable()
-        );
-
-        return queryJson(
-                sql,
-                eventId
-        );
-    }
-
-    /**
-     * Старое Python-приложение.
-     *
-     * Второй шаг:
-     *
-     * из QUERY уже получили dfw_query_id.
-     *
-     * Теперь ищем:
-     *
-     * action_type = ANSWER / ANSWER_DETAIL
-     * AND data_json ->> 'dfw_query_id' = queryId
-     */
-    public Optional<JsonNode> findLegacyResult(
-            String queryId,
+    public Optional<JsonNode> findLegacyResultByEventId(
+            String eventId,
             CompareActionType actionType
     ) {
-        ComparisonProperties.Database db =
-                properties.getLegacy();
+        ComparisonProperties.Database db = properties.getLegacy();
 
         validateLegacyDb(db);
 
-        String dataJson =
-                id(db.getDataJsonColumn());
+        String dataJson = id(db.getDataJsonColumn());
 
         String sql =
                 "SELECT " + dataJson
                         + " FROM " + id(db.getTable())
                         + " WHERE " + id(db.getActionTypeColumn()) + " = ?"
-                        + " AND (" + dataJson + ")::jsonb ->> 'dfw_query_id' = ?"
+                        + " AND (" + dataJson + ")::jsonb ->> 'dfw_event_id' = ?"
                         + orderAndLimit(db);
 
         log.info(
-                "[COMPARE-DB][LEGACY] search result queryId={} actionType={} table={}",
-                queryId,
+                "[COMPARE-DB][DOTNET] search eventId={} actionType={} table={}",
+                eventId,
                 actionType,
                 db.getTable()
         );
@@ -141,55 +78,34 @@ public class ComparisonRepository {
         return queryJson(
                 sql,
                 actionType.name(),
-                queryId
+                eventId
         );
     }
 
-    /**
-     * Выполняет SQL и возвращает первый data_json как JsonNode.
-     */
-    private Optional<JsonNode> queryJson(
-            String sql,
-            Object... args
-    ) {
+    private Optional<JsonNode> queryJson(String sql, Object... args) {
         try {
-            List<String> rows =
-                    jdbcTemplate.query(
-                            sql,
-                            (rs, rowNum) -> rs.getString(1),
-                            args
-                    );
+            List<String> rows = jdbcTemplate.query(
+                    sql,
+                    (rs, rowNum) -> rs.getString(1),
+                    args
+            );
 
             if (rows.isEmpty()) {
-                log.info(
-                        "[COMPARE-DB] query returned no rows"
-                );
-
+                log.info("[COMPARE-DB] query returned no rows");
                 return Optional.empty();
             }
 
-            String json =
-                    rows.get(0);
+            String json = rows.get(0);
 
             if (json == null || json.isBlank()) {
-                log.warn(
-                        "[COMPARE-DB] query returned empty data_json"
-                );
-
+                log.warn("[COMPARE-DB] query returned empty data_json");
                 return Optional.empty();
             }
 
-            return Optional.of(
-                    objectMapper.readTree(json)
-            );
+            return Optional.of(objectMapper.readTree(json));
 
         } catch (Exception e) {
-
-            log.error(
-                    "[COMPARE-DB] query failed sql={}",
-                    sql,
-                    e
-            );
+            log.error("[COMPARE-DB] query failed sql={}", sql, e);
 
             throw new IllegalStateException(
                     "Comparison DB query failed",
@@ -198,24 +114,10 @@ public class ComparisonRepository {
         }
     }
 
-    /**
-     * Добавляет:
-     *
-     * ORDER BY id DESC
-     * LIMIT 1
-     *
-     * Если order-column не задан:
-     * LIMIT 1
-     */
-    private String orderAndLimit(
-            ComparisonProperties.Database db
-    ) {
-        String orderColumn =
-                db.getOrderColumn();
+    private String orderAndLimit(ComparisonProperties.Database db) {
+        String orderColumn = db.getOrderColumn();
 
-        if (orderColumn == null
-                || orderColumn.isBlank()) {
-
+        if (orderColumn == null || orderColumn.isBlank()) {
             return " LIMIT 1";
         }
 
@@ -224,12 +126,7 @@ public class ComparisonRepository {
                 + " DESC LIMIT 1";
     }
 
-    /**
-     * Проверка настроек Flink-таблицы.
-     */
-    private void validateFlinkDb(
-            ComparisonProperties.Database db
-    ) {
+    private void validateFlinkDb(ComparisonProperties.Database db) {
         if (db == null) {
             throw new IllegalStateException(
                     "Flink comparison configuration is missing"
@@ -263,13 +160,7 @@ public class ComparisonRepository {
         validateIdentifiers(db);
     }
 
-    /**
-     * Для legacy eventId-column не нужен,
-     * потому что eventId лежит внутри data_json.
-     */
-    private void validateLegacyDb(
-            ComparisonProperties.Database db
-    ) {
+    private void validateLegacyDb(ComparisonProperties.Database db) {
         if (db == null) {
             throw new IllegalStateException(
                     "Legacy comparison configuration is missing"
@@ -303,9 +194,7 @@ public class ComparisonRepository {
         }
     }
 
-    private void validateIdentifiers(
-            ComparisonProperties.Database db
-    ) {
+    private void validateIdentifiers(ComparisonProperties.Database db) {
         id(db.getTable());
 
         if (!blank(db.getEventIdColumn())) {
@@ -320,18 +209,7 @@ public class ComparisonRepository {
         }
     }
 
-    /**
-     * Названия таблиц/колонок нельзя передавать как JDBC ? parameter,
-     * поэтому проверяем их whitelist-regex.
-     *
-     * Разрешаем:
-     *
-     * table
-     * schema.table
-     */
-    private String id(
-            String value
-    ) {
+    private String id(String value) {
         if (blank(value)
                 || !SAFE_IDENTIFIER.matcher(value).matches()) {
 
@@ -343,10 +221,7 @@ public class ComparisonRepository {
         return value;
     }
 
-    private boolean blank(
-            String value
-    ) {
-        return value == null
-                || value.isBlank();
+    private boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 }

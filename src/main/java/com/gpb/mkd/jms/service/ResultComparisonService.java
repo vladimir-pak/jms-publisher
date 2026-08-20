@@ -37,43 +37,19 @@ public class ResultComparisonService {
 
         JsonNode flinkResult = repository.findFlinkResult(normalizedEventId, actionType)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Flink result not found for eventId=" + normalizedEventId
-                                + ", actionType=" + actionType
+                        "Flink result not found for eventId=" + normalizedEventId + ", actionType=" + actionType
                 ));
 
-        log.info("[COMPARE][eventId={}][actionType={}] Flink result FOUND",
-                normalizedEventId, actionType);
+        log.info("[COMPARE][eventId={}][actionType={}] Flink result FOUND", normalizedEventId, actionType);
 
-        JsonNode legacyQuery = repository.findLegacyQueryByEventId(normalizedEventId)
+        JsonNode legacyResult = repository.findLegacyResultByEventId(normalizedEventId, actionType)
                 .orElseThrow(() -> new IllegalStateException(
-                        "Legacy QUERY not found by data_json.dfw_event_id=" + normalizedEventId
+                        "Dotnet result not found for dfw_event_id=" + normalizedEventId + ", actionType=" + actionType
                 ));
 
-        log.info("[COMPARE][eventId={}][actionType={}] Legacy QUERY FOUND",
-                normalizedEventId, actionType);
+        log.info("[COMPARE][eventId={}][actionType={}] Dotnet result FOUND", normalizedEventId, actionType);
 
-        String rawLegacyQueryId = legacyQuery.path("dfw_query_id").asText(null);
-
-        if (rawLegacyQueryId == null || rawLegacyQueryId.isBlank()) {
-            throw new IllegalStateException(
-                    "Legacy QUERY found, but data_json.dfw_query_id is empty for eventId="
-                            + normalizedEventId
-            );
-        }
-
-        String legacyQueryId = rawLegacyQueryId.trim();
-
-        log.info("[COMPARE][eventId={}][actionType={}] legacyQueryId={}",
-                normalizedEventId, actionType, legacyQueryId);
-
-        JsonNode legacyResult = repository.findLegacyResult(legacyQueryId, actionType)
-                .orElseThrow(() -> new IllegalStateException(
-                        "Legacy result not found for dfw_query_id=" + legacyQueryId
-                                + ", actionType=" + actionType
-                ));
-
-        log.info("[COMPARE][eventId={}][actionType={}] Legacy result FOUND queryId={}",
-                normalizedEventId, actionType, legacyQueryId);
+        String legacyQueryId = legacyResult.path("dfw_query_id").asText(null);
 
         JsonNode flinkComparable;
         JsonNode legacyComparable;
@@ -88,18 +64,12 @@ public class ResultComparisonService {
 
         log.info(
                 "[COMPARE][eventId={}][actionType={}] comparing flinkNodeType={} dotnetNodeType={} flinkSize={} dotnetSize={}",
-                normalizedEventId,
-                actionType,
-                nodeType(flinkComparable),
-                nodeType(legacyComparable),
-                nodeSize(flinkComparable),
-                nodeSize(legacyComparable)
+                normalizedEventId, actionType,
+                nodeType(flinkComparable), nodeType(legacyComparable),
+                nodeSize(flinkComparable), nodeSize(legacyComparable)
         );
 
-        List<JsonDifference> differences = jsonComparisonService.compare(
-                flinkComparable,
-                legacyComparable
-        );
+        List<JsonDifference> differences = jsonComparisonService.compare(flinkComparable, legacyComparable);
 
         int valueMismatch = count(differences, DifferenceType.VALUE_MISMATCH);
         int typeMismatch = count(differences, DifferenceType.TYPE_MISMATCH);
@@ -125,18 +95,12 @@ public class ResultComparisonService {
 
         log.info(
                 "[COMPARE][eventId={}][actionType={}] comparison END match={} totalDifferences={}",
-                normalizedEventId,
-                actionType,
-                match,
-                differences.size()
+                normalizedEventId, actionType, match, differences.size()
         );
 
         return response;
     }
 
-    /**
-     * Сравниваем detail_results целиком.
-     */
     private JsonNode extractDetailResults(JsonNode source, String sourceName) {
         if (source == null || source.isNull()) {
             throw new IllegalStateException(sourceName + " result is null");
@@ -145,9 +109,7 @@ public class ResultComparisonService {
         JsonNode detailResults = source.get("detail_results");
 
         if (detailResults == null || detailResults.isNull() || !detailResults.isObject()) {
-            throw new IllegalStateException(
-                    sourceName + " ANSWER_DETAIL does not contain detail_results object"
-            );
+            throw new IllegalStateException(sourceName + " ANSWER_DETAIL does not contain detail_results object");
         }
 
         log.info("[COMPARE] {} ANSWER_DETAIL -> comparing detail_results", sourceName);
@@ -155,9 +117,6 @@ public class ResultComparisonService {
         return detailResults.deepCopy();
     }
 
-    /**
-     * В качестве эталона структуры берём только details.
-     */
     private JsonNode extractDotnetAnswerDetails(JsonNode source) {
         if (source == null || source.isNull()) {
             throw new IllegalStateException("DOTNET result is null");
@@ -166,16 +125,13 @@ public class ResultComparisonService {
         JsonNode details = source.get("details");
 
         if (details == null || details.isNull() || !details.isObject()) {
-            throw new IllegalStateException(
-                    "DOTNET ANSWER does not contain details object"
-            );
+            throw new IllegalStateException("DOTNET ANSWER does not contain details object");
         }
 
         log.info("[COMPARE] DOTNET ANSWER -> details selected as comparison structure");
 
         return details.deepCopy();
     }
-
 
     private JsonNode extractFlinkAnswerByDotnetStructure(JsonNode source, JsonNode dotnetDetails) {
         if (source == null || source.isNull()) {
@@ -189,17 +145,13 @@ public class ResultComparisonService {
         JsonNode data = source.get("data");
 
         if (data == null || data.isNull() || !data.isObject()) {
-            throw new IllegalStateException(
-                    "FLINK ANSWER does not contain data object"
-            );
+            throw new IllegalStateException("FLINK ANSWER does not contain data object");
         }
 
         JsonNode flinkDetails = data.get("details");
 
         if (flinkDetails == null || flinkDetails.isNull() || !flinkDetails.isObject()) {
-            throw new IllegalStateException(
-                    "FLINK ANSWER does not contain data.details object"
-            );
+            throw new IllegalStateException("FLINK ANSWER does not contain data.details object");
         }
 
         ObjectNode comparable = JsonNodeFactory.instance.objectNode();
@@ -289,8 +241,6 @@ public class ResultComparisonService {
             return 0;
         }
 
-        return node.isObject() || node.isArray()
-                ? node.size()
-                : 1;
+        return node.isObject() || node.isArray() ? node.size() : 1;
     }
 }
