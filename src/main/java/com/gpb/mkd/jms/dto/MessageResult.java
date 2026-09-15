@@ -15,6 +15,8 @@ public class MessageResult {
 
     private String responseCorrelationId;
 
+    private String msgId;
+
     private String responseBody;
 
     private long durationMs;

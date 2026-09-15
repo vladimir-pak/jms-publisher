@@ -1,5 +1,7 @@
 package com.gpb.mkd.jms.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gpb.mkd.jms.config.ArtemisBrokerUrlBuilder;
 import com.gpb.mkd.jms.config.ArtemisClientProperties;
 import com.gpb.mkd.jms.dto.LoadRequest;
@@ -51,6 +53,7 @@ public class JmsRequestReplyService {
     private final ConnectionFactory connectionFactory;
     private final ArtemisClientProperties properties;
     private final JmsLoadMetrics metrics;
+    private final ObjectMapper objectMapper;
 
     /**
      * One long-lived connection for all sender sessions and the shared reply listener.
@@ -326,6 +329,7 @@ public class JmsRequestReplyService {
 
             String responseCorrelationId = message.getJMSCorrelationID();
             String responseBody = extractBody(message);
+            String msgId = extractMsgId(responseBody);
 
             if (responseCorrelationId == null || responseCorrelationId.isBlank()) {
                 metrics.incrementReplyWithoutPending();
@@ -333,7 +337,12 @@ public class JmsRequestReplyService {
                 return;
             }
 
-            ReceivedReply reply = new ReceivedReply(responseCorrelationId, responseBody, System.nanoTime());
+            ReceivedReply reply = new ReceivedReply(
+                    responseCorrelationId,
+                    responseBody,
+                    msgId,
+                    System.nanoTime()
+            );
             PendingRequest pending = pendingRequests.remove(responseCorrelationId);
 
             if (pending != null) {
@@ -367,7 +376,9 @@ public class JmsRequestReplyService {
     }
 
     private void completeSuccess(PendingRequest pending, ReceivedReply reply) {
-        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - pending.startedNanos());
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - pending.startedNanos()
+        );
 
         metrics.recordSuccess(durationMs, reply.body());
 
@@ -376,6 +387,7 @@ public class JmsRequestReplyService {
                 .success(true)
                 .requestMessageId(pending.requestMessageId())
                 .responseCorrelationId(reply.correlationId())
+                .msgId(reply.msgId())
                 .responseBody(pending.includeResponse() ? reply.body() : null)
                 .durationMs(durationMs)
                 .build());
@@ -584,6 +596,28 @@ public class JmsRequestReplyService {
         }
     }
 
+    private String extractMsgId(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(responseBody);
+
+            JsonNode queryIdNode = root.path("data").path("dfw_query_id");
+
+            if (queryIdNode.isMissingNode() || queryIdNode.isNull()) {
+                return null;
+            }
+
+            return queryIdNode.asText();
+
+        } catch (Exception e) {
+            log.warn("Failed to extract data.dfw_query_id from response", e);
+            return null;
+        }
+    }
+
     private record PendingRequest(
             int index,
             long startedNanos,
@@ -597,6 +631,7 @@ public class JmsRequestReplyService {
     private record ReceivedReply(
             String correlationId,
             String body,
+            String msgId,
             long receivedNanos
     ) {
     }
