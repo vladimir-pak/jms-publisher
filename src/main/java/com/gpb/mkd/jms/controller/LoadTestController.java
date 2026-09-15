@@ -18,4 +18,9 @@ public class LoadTestController {
     public LoadResponse requestReply(@Valid @RequestBody LoadRequest request) {
         return service.runLoadTest(request);
     }
+
+    @PostMapping("/request-reply/single")
+    public LoadResponse requestReplySingle(@Valid @RequestBody LoadRequest request) {
+        return service.sendSingleRequest(request);
+    }
 }

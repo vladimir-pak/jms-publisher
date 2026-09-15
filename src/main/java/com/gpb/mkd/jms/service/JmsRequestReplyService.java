@@ -183,6 +183,31 @@ public class JmsRequestReplyService {
                 .build();
     }
 
+    public LoadResponse sendSingleRequest(LoadRequest request) {
+        long started = System.nanoTime();
+
+        MessageResult result = CompletableFuture
+                .supplyAsync(
+                        () -> doSendOne(1, request),
+                        senderExecutor
+                )
+                .join();
+
+        long totalDurationMs = TimeUnit.NANOSECONDS.toMillis(
+                System.nanoTime() - started
+        );
+
+        return LoadResponse.builder()
+                .requested(1)
+                .success(result.isSuccess() ? 1 : 0)
+                .failed(result.isSuccess() ? 0 : 1)
+                .totalDurationMs(totalDurationMs)
+                .minLatencyMs(result.isSuccess() ? result.getDurationMs() : 0L)
+                .maxLatencyMs(result.isSuccess() ? result.getDurationMs() : 0L)
+                .results(List.of(result))
+                .build();
+    }
+
     private MessageResult sendOne(int index, LoadRequest request, Semaphore concurrencyLimiter) {
         boolean acquired = false;
         try {
@@ -604,7 +629,7 @@ public class JmsRequestReplyService {
         try {
             JsonNode root = objectMapper.readTree(responseBody);
 
-            JsonNode queryIdNode = root.path("data").path("dfw_query_id");
+            JsonNode queryIdNode = root.path("data").path("dfw_event_id");
 
             if (queryIdNode.isMissingNode() || queryIdNode.isNull()) {
                 return null;
@@ -613,7 +638,7 @@ public class JmsRequestReplyService {
             return queryIdNode.asText();
 
         } catch (Exception e) {
-            log.warn("Failed to extract data.dfw_query_id from response", e);
+            log.warn("Failed to extract data.dfw_event_id from response", e);
             return null;
         }
     }
