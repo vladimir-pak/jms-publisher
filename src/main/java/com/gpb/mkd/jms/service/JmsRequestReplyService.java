@@ -127,24 +127,46 @@ public class JmsRequestReplyService {
         int effectiveConcurrency = resolveConcurrency(request);
         Semaphore concurrencyLimiter = new Semaphore(effectiveConcurrency);
 
+        /*
+        * Payload одинаковый для всех сообщений,
+        * поэтому сериализуем JsonNode только один раз.
+        */
+        String payload = serializePayload(request.getPayload());
+
         long started = System.nanoTime();
-        List<CompletableFuture<MessageResult>> tasks = new ArrayList<>(request.getCount());
+
+        List<CompletableFuture<MessageResult>> tasks =
+                new ArrayList<>(request.getCount());
 
         for (int i = 0; i < request.getCount(); i++) {
             int index = i + 1;
-            tasks.add(CompletableFuture.supplyAsync(
-                    () -> sendOne(index, request, concurrencyLimiter),
-                    senderExecutor
-            ));
+
+            tasks.add(
+                    CompletableFuture.supplyAsync(
+                            () -> sendOne(
+                                    index,
+                                    request,
+                                    payload,
+                                    concurrencyLimiter
+                            ),
+                            senderExecutor
+                    )
+            );
         }
 
         List<MessageResult> results = tasks.stream()
                 .map(CompletableFuture::join)
                 .toList();
 
-        long totalDurationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+        long totalDurationMs =
+                TimeUnit.NANOSECONDS.toMillis(
+                        System.nanoTime() - started
+                );
 
-        int success = (int) results.stream().filter(MessageResult::isSuccess).count();
+        int success = (int) results.stream()
+                .filter(MessageResult::isSuccess)
+                .count();
+
         int failed = results.size() - success;
 
         List<Long> latencies = results.stream()
@@ -179,16 +201,24 @@ public class JmsRequestReplyService {
                 .avgLatencyMs(avgLatencyMs)
                 .minLatencyMs(minLatencyMs)
                 .maxLatencyMs(maxLatencyMs)
-                .results(request.isIncludeResponses() ? results : List.of())
+                .results(request.isIncludeResponses()
+                        ? results
+                        : List.of())
                 .build();
     }
 
     public LoadResponse sendSingleRequest(LoadRequest request) {
+        String payload = serializePayload(request.getPayload());
+
         long started = System.nanoTime();
 
         MessageResult result = CompletableFuture
                 .supplyAsync(
-                        () -> doSendOne(1, request),
+                        () -> doSendOne(
+                                1,
+                                request,
+                                payload
+                        ),
                         senderExecutor
                 )
                 .join();
@@ -202,26 +232,49 @@ public class JmsRequestReplyService {
                 .success(result.isSuccess() ? 1 : 0)
                 .failed(result.isSuccess() ? 0 : 1)
                 .totalDurationMs(totalDurationMs)
-                .minLatencyMs(result.isSuccess() ? result.getDurationMs() : 0L)
-                .maxLatencyMs(result.isSuccess() ? result.getDurationMs() : 0L)
+                .minLatencyMs(
+                        result.isSuccess()
+                                ? result.getDurationMs()
+                                : 0L
+                )
+                .maxLatencyMs(
+                        result.isSuccess()
+                                ? result.getDurationMs()
+                                : 0L
+                )
                 .results(List.of(result))
                 .build();
     }
 
-    private MessageResult sendOne(int index, LoadRequest request, Semaphore concurrencyLimiter) {
+    private MessageResult sendOne(
+            int index,
+            LoadRequest request,
+            String payload,
+            Semaphore concurrencyLimiter
+    ) {
         boolean acquired = false;
+
         try {
             concurrencyLimiter.acquire();
             acquired = true;
-            return doSendOne(index, request);
+
+            return doSendOne(
+                    index,
+                    request,
+                    payload
+            );
+
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+
             metrics.incrementFailed();
+
             return MessageResult.builder()
                     .index(index)
                     .success(false)
                     .error("Interrupted while waiting for concurrency permit")
                     .build();
+
         } finally {
             if (acquired) {
                 concurrencyLimiter.release();
@@ -229,59 +282,113 @@ public class JmsRequestReplyService {
         }
     }
 
-    private MessageResult doSendOne(int index, LoadRequest request) {
+    private MessageResult doSendOne(
+            int index,
+            LoadRequest request,
+            String payload
+    ) {
         long started = System.nanoTime();
+
         metrics.incrementInFlight(inFlight);
 
-        CompletableFuture<MessageResult> responseFuture = new CompletableFuture<>();
+        CompletableFuture<MessageResult> responseFuture =
+                new CompletableFuture<>();
+
         String requestMessageId = null;
         String requestCorrelationId = null;
 
         try {
             WorkerContext context = workerContext.get();
 
-            TextMessage message = context.session.createTextMessage(request.getPayload());
+            /*
+            * В JMS по-прежнему отправляем TextMessage.
+            * JsonNode уже сериализован в JSON string.
+            */
+            TextMessage message =
+                    context.session.createTextMessage(payload);
 
-            applyRequestReplyHeaders(message, context.replyQueue);
-            applyUserProperties(message, request.getProperties());
-            applyIntegrationHeaders(message, request);
-            applyIbmMqCompatibilityProperties(message);
-
-            if (properties.getIbmMqCompatibility().isRequestCorrelationIdEnabled()) {
-                requestCorrelationId = properties.getIbmMqCompatibility().getRequestCorrelationIdPrefix() + UUID.randomUUID();
-                message.setJMSCorrelationID(requestCorrelationId);
-            }
-
-            metrics.recordPayloadSize(request.getPayload());
-
-            context.producer.send(message);
-            metrics.incrementSent();
-
-            requestMessageId = message.getJMSMessageID();
-
-            String expectedResponseCorrelationId = requestCorrelationId != null
-                    ? requestCorrelationId
-                    : requestMessageId;
-
-            PendingRequest pending = new PendingRequest(
-                    index,
-                    started,
-                    request.isIncludeResponses(),
-                    expectedResponseCorrelationId,
-                    requestMessageId,
-                    responseFuture
+            applyRequestReplyHeaders(
+                    message,
+                    context.replyQueue
             );
 
-            pendingRequests.put(expectedResponseCorrelationId, pending);
+            applyUserProperties(
+                    message,
+                    request.getProperties()
+            );
+
+            applyIntegrationHeaders(
+                    message,
+                    request
+            );
+
+            applyIbmMqCompatibilityProperties(message);
+
+            if (properties
+                    .getIbmMqCompatibility()
+                    .isRequestCorrelationIdEnabled()) {
+
+                requestCorrelationId =
+                        properties
+                                .getIbmMqCompatibility()
+                                .getRequestCorrelationIdPrefix()
+                        + UUID.randomUUID();
+
+                message.setJMSCorrelationID(
+                        requestCorrelationId
+                );
+            }
+
+            /*
+            * Метрика получает фактическую JSON-строку,
+            * которая будет отправлена в MQ.
+            */
+            metrics.recordPayloadSize(payload);
+
+            context.producer.send(message);
+
+            metrics.incrementSent();
+
+            requestMessageId =
+                    message.getJMSMessageID();
+
+            String expectedResponseCorrelationId =
+                    requestCorrelationId != null
+                            ? requestCorrelationId
+                            : requestMessageId;
+
+            PendingRequest pending =
+                    new PendingRequest(
+                            index,
+                            started,
+                            request.isIncludeResponses(),
+                            expectedResponseCorrelationId,
+                            requestMessageId,
+                            responseFuture
+                    );
+
+            pendingRequests.put(
+                    expectedResponseCorrelationId,
+                    pending
+            );
+
             scheduleTimeout(pending);
-            completeFromEarlyReplyIfExists(expectedResponseCorrelationId);
+
+            completeFromEarlyReplyIfExists(
+                    expectedResponseCorrelationId
+            );
 
             return responseFuture.join();
 
         } catch (Exception e) {
+
             metrics.recordSendFailure();
 
-            long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started);
+            long durationMs =
+                    TimeUnit.NANOSECONDS.toMillis(
+                            System.nanoTime() - started
+                    );
+
             return MessageResult.builder()
                     .index(index)
                     .success(false)
@@ -290,6 +397,7 @@ public class JmsRequestReplyService {
                     .durationMs(durationMs)
                     .error(e.getMessage())
                     .build();
+
         } finally {
             metrics.decrementInFlight(inFlight);
         }
@@ -585,6 +693,23 @@ public class JmsRequestReplyService {
         }
 
         return null;
+    }
+
+    private String serializePayload(JsonNode payload) {
+        if (payload == null || payload.isNull()) {
+            throw new IllegalArgumentException(
+                    "Payload must not be null"
+            );
+        }
+
+        try {
+            return objectMapper.writeValueAsString(payload);
+        } catch (Exception e) {
+            throw new IllegalArgumentException(
+                    "Failed to serialize payload to JSON",
+                    e
+            );
+        }
     }
 
     @PreDestroy

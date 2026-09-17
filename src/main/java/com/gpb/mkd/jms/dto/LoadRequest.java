@@ -7,6 +7,8 @@ import lombok.Setter;
 
 import java.util.Map;
 
+import com.fasterxml.jackson.databind.JsonNode;
+
 @Getter
 @Setter
 public class LoadRequest {
@@ -15,7 +17,7 @@ public class LoadRequest {
      * Тело сообщения, которое уйдет в MQ.
      */
     @NotBlank
-    private String payload;
+    private JsonNode payload;
 
     /**
      * Сколько сообщений отправить.
