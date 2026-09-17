@@ -300,12 +300,36 @@ public class JmsRequestReplyService {
         try {
             WorkerContext context = workerContext.get();
 
-            /*
-            * В JMS по-прежнему отправляем TextMessage.
-            * JsonNode уже сериализован в JSON string.
-            */
+            if (payload == null || payload.isBlank()) {
+                throw new IllegalStateException(
+                        "Outgoing JMS payload is null or empty"
+                );
+            }
+
+            log.info(
+                    "Preparing JMS message. payloadLength={}, payload={}",
+                    payload.length(),
+                    payload
+            );
+
             TextMessage message =
-                    context.session.createTextMessage(payload);
+                    context.session.createTextMessage();
+
+            message.setText(payload);
+
+            String messageBody = message.getText();
+
+            if (messageBody == null || messageBody.isBlank()) {
+                throw new IllegalStateException(
+                        "JMS TextMessage body is empty before send"
+                );
+            }
+
+            log.info(
+                    "JMS TextMessage created. bodyLength={}, body={}",
+                    messageBody.length(),
+                    messageBody
+            );
 
             applyRequestReplyHeaders(
                     message,
@@ -334,23 +358,32 @@ public class JmsRequestReplyService {
                                 .getRequestCorrelationIdPrefix()
                         + UUID.randomUUID();
 
-                message.setJMSCorrelationID(
-                        requestCorrelationId
-                );
+                message.setJMSCorrelationID(requestCorrelationId);
             }
 
             /*
-            * Метрика получает фактическую JSON-строку,
-            * которая будет отправлена в MQ.
+            * Последняя проверка непосредственно перед producer.send()
             */
+            log.info(
+                    "Sending JMS message. bodyLength={}, body={}",
+                    message.getText() != null
+                            ? message.getText().length()
+                            : null,
+                    message.getText()
+            );
+
             metrics.recordPayloadSize(payload);
 
             context.producer.send(message);
 
             metrics.incrementSent();
 
-            requestMessageId =
-                    message.getJMSMessageID();
+            requestMessageId = message.getJMSMessageID();
+
+            log.info(
+                    "JMS message sent. JMSMessageID={}",
+                    requestMessageId
+            );
 
             String expectedResponseCorrelationId =
                     requestCorrelationId != null
@@ -383,6 +416,12 @@ public class JmsRequestReplyService {
         } catch (Exception e) {
 
             metrics.recordSendFailure();
+
+            log.error(
+                    "Failed to send JMS request. index={}",
+                    index,
+                    e
+            );
 
             long durationMs =
                     TimeUnit.NANOSECONDS.toMillis(

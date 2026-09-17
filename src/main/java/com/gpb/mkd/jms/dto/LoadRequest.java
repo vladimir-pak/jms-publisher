@@ -1,7 +1,7 @@
 package com.gpb.mkd.jms.dto;
 
 import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -16,7 +16,7 @@ public class LoadRequest {
     /**
      * Тело сообщения, которое уйдет в MQ.
      */
-    @NotBlank
+    @NotNull 
     private JsonNode payload;
 
     /**
